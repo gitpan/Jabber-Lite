@@ -1,0 +1,32 @@
+
+0.5 2006/06 - Bruce Campbell
+	- Thats no moon...
+
+		* CPAN this time for real.  (Deathstars do respond to mallets)
+		* Tweaks for yet more corner cases.
+
+0.4 2006/04 - Bruce Campbell
+	- Earth?  Earth-with-nuclear-weapons-Earth?  Friend!
+
+		* Intended Initial CPAN Release
+		* Resolution of SRV Records.
+
+0.3 2005/02 - Bruce Campbell
+	- I'd talk to the hand, but I have a clear above-the-belt chat policy.
+
+		* Reworking to avoid blocking wherever possible.
+		* Tidy up of debug calls and other cruft.
+		* Addition of various RFC goodness.
+
+0.2 2005/01 - Bruce Campbell
+	- Theres something about all those legs that sends shivers down my spine
+
+		* Hopeful extermination of parsing bugs.
+		* SASL authentication as client.
+		* Simple authentication as component.
+
+0.1 2005/12 - Bruce Campbell
+	- Upside-Down Ms Jane!
+
+		* Basic sketch of the XML Parser code
+		* Simple (blocking) connection and authentication.
