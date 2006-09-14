@@ -20,3 +20,4 @@ Soft Dependencies:
 	Authen::SASL
 	MIME::Base64
 	IO::Socket::SSL
+	Scalar::Util

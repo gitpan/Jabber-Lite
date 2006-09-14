@@ -1,6 +1,6 @@
 ###################################################################
 # Jabber::Lite
-# $Id: Jabber::Lite.pm,v 1.52 2006/06/18 11:02:45 bc Exp bc $
+# $Id: Jabber::Lite.pm,v 1.61 2006/09/14 09:47:43 bc Exp $
 # Copyright (C) 2005-2006 Bruce Campbell <beecee@cpan.zerlargal.org>
 #
 # This is a perl library intended to be a small and light implementation
@@ -88,9 +88,68 @@ This one recognises just enough XML for its purposes ;)
 
 =cut
 
+# Do proxy thing as per Matt Sergeant's article:
+# http://www.perl.com/pub/a/2002/08/07/proxyobject.html?page=3
+# This may reduce some memory usage.
 
 package Jabber::Lite;
 
+use strict;
+our $AUTOLOAD;
+
+BEGIN {
+	eval "use Scalar::Util qw(weaken);";
+	if ($@) {
+		$Jabber::Lite::WeakRefs = 0;
+	} else {
+		$Jabber::Lite::WeakRefs = 1;
+	}
+}
+
+sub new {
+	my $class = shift;
+	no strict 'refs';
+	my $impl = $class . "Impl";
+	my $this = $impl->new(@_);
+	if ($Jabber::Lite::WeakRefs) {
+		return $this;
+	}
+	my $self = \$this;
+	return bless $self, $class;
+}
+
+sub AUTOLOAD {
+	my $method = $AUTOLOAD;
+	$method =~ s/.*:://; # strip the package name
+	no strict 'refs';
+	*{$AUTOLOAD} = sub {
+		my $self = shift;
+		my $olderror = $@; # store previous exceptions
+		my $obj = eval { $$self };
+		if ($@) {
+			if ($@ =~ /Not a SCALAR reference/) {
+				croak("No such method $method in " . ref($self));
+			}
+			croak $@;
+		}
+		if ($obj) {
+			# make sure $@ propogates if this method call was the 
+			# result of losing scope because of a die().
+			if ($method =~ /^(DESTROY|del_parent_link)$/) {
+				$obj->$method(@_);
+				$@ = $olderror if $olderror;
+				return;
+			}
+			return $obj->$method(@_);
+		}
+	};
+	goto &$AUTOLOAD;
+}
+
+# sub DESTROY { my $self = shift; warn("Lite::DESTROY $self\n") }
+
+# Now for the actual package.
+package Jabber::LiteImpl;
 use constant r_HANDLED => -522201;
 use Exporter;
 
@@ -107,10 +166,20 @@ use vars qw/@ISA $VERSION @EXPORT @EXPORT_OK %EXPORT_TAGS/;
 my $con;
 push @EXPORT_OK, @$con while (undef, $con) = each %EXPORT_TAGS;
 
-$VERSION = "0.5";
+$VERSION = "0.6";
 
 use IO::Socket::INET;
 use IO::Select;
+
+sub DESTROY { 
+	my $self = shift; 
+	# warn("Impl::DESTROY $self\n");
+
+	# Remove references to this instance.  If it is being called
+	# manually, may trigger garbage collection of other objects.
+	$self->hidetree();
+
+}
 
 =head1 METHODS
 
@@ -325,7 +394,7 @@ sub resolved {
 				my $port = $2;
 				my $host = $3;
 				if( $wghtnum > $wghthigh ){
-					$wgthigh = $wghtnum;
+					$wghthigh = $wghtnum;
 				}
 			}
 
@@ -653,7 +722,7 @@ sub bgresolved {
 						# Add the result to the 
 						# '_resolved' hash as 
 						# appropriate.
-						push @{$self->{'_resolved'}{$qname}{'srv'}{$prio}}, $weight . " " . $port . " " . $target;
+						push @{$self->{'_resolved'}{$qname}{'srv'}{$prio}}, $answer->weight . " " . $port . " " . $target;
 
 						# Start queries for 'A' and
 						# 'AAAA'.  Should these go
@@ -1135,13 +1204,8 @@ The ->bgconnect method is just the same as the ->connect method, except it
 returns straight away.  Use the ->bgconnected method to test for an answer
 to that 4am question, am I connected or not?
 
-Note: You will still have to wait for the initial TCP connection to succeed;
-the IO::Socket::INET library doesn't offer a backgroundable method of 
-initiating a connection without forking or invoking threading, neither of
-which I wish to have this library do.
-
-Returns 1 if the TCP connection succeeded (including the initial SSL
-negotiation if requested), and 0 if not.
+Returns 1 if the TCP connection could be started, and 0 if not.  If this
+method returns 0, you probably have bigger problems.
 
 Note: The ->bgconnect method just calls ->connect with the background 
 flag set.
@@ -1182,6 +1246,7 @@ sub bgconnected {
 		$self->debug( "bgconnected: invoked process - $tval\n" );
 		if( $tval == 1 ){
 			my $objthrowaway = $self->get_latest();
+			$objthrowaway->hidetree;
 		}
 	}
 
@@ -1513,6 +1578,7 @@ sub bgauthenticated {
 		$self->debug( "invoked process - $tval\n");
 		if( $tval == 1 ){
 			my $objthrowaway = $self->get_latest();
+			$objthrowaway->hidetree;
 		}elsif( $tval < 0 ){
 			# print STDERR "BGAUTHENTICATED GOT $tval FROM process\n";
 			$retval = 0;
@@ -2105,6 +2171,7 @@ sub listauths {
 								$deliqauth++;
 							}
 						}
+						$tobj->hidetree;
 					}
 				}
 			}else{
@@ -2140,6 +2207,7 @@ sub _listauths_handler {
 	my $node = shift;
 	my $persisdata = shift;
 	my $retval = undef;
+	my $gotans = 0;
 
 	$self->debug( "invoked\n" );
 	my $idval = $self->{'_ask_iq_auth'};
@@ -2283,6 +2351,7 @@ sub bgsessioned {
 		$self->debug( " invoked process - $tval\n" );
 		if( $tval == 1 ){
 			my $objthrowaway = $self->get_latest();
+			$objthrowaway->hidetree;
 		}
 	}
 
@@ -2472,6 +2541,7 @@ sub bgbinded {
 		$self->debug( " invoked process - $tval\n" );
 		if( $tval == 1 ){
 			my $objthrowaway = $self->get_latest();
+			$objthrowaway->hidetree;
 		}
 	}
 
@@ -2791,34 +2861,38 @@ sub process {
 
 	my $arg = shift;
 
+	my $dval = $self->_check_val( '_debug' );
+	if( $dval ){
+		$dval = $self->{'_debug'};
+	}
 	if( ! defined( $arg ) ){
 		$arg = 0;
 	}else{
-		$self->debug( " Got arg of $arg\n" );
+		$self->debug( " Got arg of $arg\n" ) if( $dval );
 	}
 
 	my $retval = 0;
 
 	# See if we can process anything.
 	if( $self->can_read( $arg ) ){
-		$self->debug( " can_read yes, invoking do_read()\n" );
+		$self->debug( " can_read yes, invoking do_read()\n" ) if( $dval );
 		$retval = $self->do_read();
 		if( $retval == -1 ){
 			# print STDERR "RETVAL -1 THANKS TO DO_READ\n";
 		}
 	}elsif( defined( $self->{'_pending'} ) ){
 		# Yes, we go process something if there is still pending text.
-		$self->debug( " can_read no, pending yes, invoking do_read()\n" );
+		$self->debug( " can_read no, pending yes, invoking do_read()\n" ) if( $dval );
 		$retval = $self->do_read( PendingOnly => 1 );
 		if( $retval == -1 ){
 			# print STDERR "RETVAL -1 THANKS TO DO_READ PENDING\n";
 		}
 	}elsif( $self->is_eof() ){
-		$self->debug( " can_read no, pending no, eof yes\n" );
+		$self->debug( " can_read no, pending no, eof yes\n" ) if( $dval );
 		$retval = -1;
 		# print STDERR "SET RETVAL TO -1 AS IS_EOF\n";
 	}else{
-		$self->debug( " can_read no, pending no, eof no\n" );
+		$self->debug( " can_read no, pending no, eof no\n" ) if( $dval );
 		# Is there currently an object?
 		if( defined( $self->{'_curobj'} ) ){
 			if( $self->{'_curobj'}->is_complete() ){
@@ -2828,14 +2902,14 @@ sub process {
 		}
 	}
 
-	$self->debug( " retval is $retval\n" );
+	$self->debug( " retval is $retval\n" ) if( $dval );
 	# Process the handlers defined.  We make two passes; one for the
 	# current packet, and one for the timeouts.
 	if( $retval == 1 && defined( $self->{'handlers'} ) ){
 		# 
 		my $tobj = $self->get_latest;
 		my $curname = $tobj->name();
-		$self->debug( " considering handler for $tobj ($curname)\n" );
+		$self->debug( " considering handler for $tobj ($curname)\n" ) if( $dval );
 
 		my $stillgoing = 1;
 		if( defined( $self->{'handlers'}{$curname} ) ){
@@ -2850,16 +2924,16 @@ sub process {
 				next unless( defined( $thisclass ) );
 				next if( $thisclass =~ /^\s*$/ );
 				next if( defined( $uclass{"$thisclass"} ) );
-				$self->debug( "Checking handlers for $curname of class $thisclass" );
+				$self->debug( "Checking handlers for $curname of class $thisclass" ) if( $dval );
 				$uclass{"$thisclass"}++;
 				next unless( exists( $self->{'handlers'}{$curname}{$thisclass} ) );
-				$self->debug("Handler for $curname and $thisclass" );
+				$self->debug("Handler for $curname and $thisclass" ) if( $dval );
 				my $persisdata = undef;
 				my $loop = 0;
 				my $maxhandlers = scalar( @{$self->{'handlers'}{$curname}{$thisclass}} );
 				while( $loop < $maxhandlers && $stillgoing ){
 					eval {
-						$self->debug( "handing $tobj and $persisdata to $curname handler $loop\n" );
+						$self->debug( "handing $tobj and $persisdata to $curname handler $loop\n" ) if( $dval );
 						$persisdata = ${$self->{'handlers'}{$curname}{$thisclass}}[$loop]->( $tobj, $persisdata );
 					};
 
@@ -2869,7 +2943,7 @@ sub process {
 						}
 					}
 
-					$self->debug( " Got $loop and $maxhandlers - $stillgoing\n" );
+					$self->debug( " Got $loop and $maxhandlers - $stillgoing\n" ) if( $dval );
 					$loop++;
 				}
 			}
@@ -2881,9 +2955,10 @@ sub process {
 			$self->copy_latest( $tobj );
 			$retval = 1;
 		}else{
+			$tobj->hidetree;
 			$retval = 2;
 		}
-		$self->debug( " Back to here\n" );
+		$self->debug( " Back to here\n" ) if( $dval );
 	}
 
 	# Lets process the timeouts.  These do not affect the
@@ -2893,7 +2968,7 @@ sub process {
 			# XXXX - bug in inserting things into heartbeats?
 			# print STDERR "check heartbeats - " . time . " " . ${$self->{'heartbeats'}}[0] . "\n";
 			if( time > ${$self->{'heartbeats'}}[0] ){
-				$self->debug( "Found heartbeats - " . time . " " . ${$self->{'heartbeats'}}[0] );
+				$self->debug( "Found heartbeats - " . time . " " . ${$self->{'heartbeats'}}[0] ) if( $dval );
 				# print STDERR "Found heartbeats - " . time . " " . ${$self->{'heartbeats'}}[0] . "\n";
 				my $plook = ${$self->{'heartbeats'}}[0];
 				splice( @{$self->{'heartbeats'}}, 0, 1 );
@@ -2906,16 +2981,16 @@ sub process {
 
 					# Execute this one.
 					eval {
-						$self->debug( "Executing sub" );
+						$self->debug( "Executing sub" ) if( $dval );
 						$self->{'timebeats'}{"$tlook"}{"sub"}->( $self, $self->{'timebeats'}{"$tlook"}{"arg"} );
-						$self->debug( "Finished Executing sub" );
+						$self->debug( "Finished Executing sub" ) if( $dval );
 					};
 				}
 			}
 		}
 	}
 
-	$self->debug( "returning $retval\n" );
+	$self->debug( "returning $retval\n" ) if( $dval );
 	if( $retval == -1 ){
 		# Abort as theres nothing more to be read.
 		# print STDERR "ABORTING AS RETVAL IS -1\n";
@@ -2952,8 +3027,10 @@ sub send {
 			$amconnected = 1;
 		}
 
-		
-		if (ref($arg) eq 'Jabber::Lite' && $nwritable && $amconnected ) {
+
+		# Deal with either the public or hidden class.	
+		my $tref = ref( $arg );	
+		if ( ( $tref eq 'Jabber::Lite' || $tref eq 'Jabber::LiteImpl' ) && $nwritable && $amconnected ) {
 			# print "OBJECT is " . $arg->toStr . "\n";
 			# print "WRI";
 			$retval = $self->socket->send( $arg->toStr );
@@ -2962,7 +3039,7 @@ sub send {
 			# print "object is " . $arg . "\n";
 			# print "wri";
 			$retval = $self->socket->send( $arg );
-			# print "te $retval - $@\n";
+			# print "te (" . $arg . ") $retval - $@\n";
 		}else{
 			$self->debug( "socket is not writable or is disconnected." );
 			$self->abort();
@@ -3246,7 +3323,7 @@ sub do_read {
 	# to deal with it.  This includes things that we just read.
 
 	if( defined( $self->{'_pending'} ) ){
-		$self->debug( "Current pending is " . $self->{'_pending'} . "\n" );
+		# $self->debug( "Current pending is " . $self->{'_pending'} . "\n" );
 
 		# Then see if we have to create an object.
 		if( ! defined( $self->{'_curobj'} ) ){
@@ -3524,6 +3601,7 @@ sub _connect_handler {
 	my $persisdata = shift;
 
 	my $retval = undef;
+	my $cango = 1;
 
 	$self->debug( "invoked\n" );
 
@@ -3539,8 +3617,9 @@ sub _connect_handler {
 			if( defined( $node->attr( 'from' ) ) ){
 				$self->{'confirmedns'} = $node->attr( 'from' );
 				# See if we allow such redirection.
-				if( ! $args{"AllowRedirect"} ){
-					if( lc( $self->{'confirmedns'} ) ne lc( $args{"Domain"} ) ){
+				# if( ! $args{"AllowRedirect"} ){
+				if( ! $self->{'_connectargs'}{"AllowRedirect"} ){
+					if( lc( $self->{'confirmedns'} ) ne lc( $self->{'_connectargs'}{"Domain"} ) ){
 						$cango = 0;
 					}
 				}
@@ -3757,6 +3836,7 @@ sub newNode {
 		$retobj->{'_debug'} = $self->{'_debug'};
 
 	}
+
 	# my @calledwith = caller(1);
 	# my $lineno = $calledwith[2];
 	# my $fname = $calledwith[1];
@@ -3803,7 +3883,10 @@ sub insertTag {
 	# print STDERR "insertTag called on $self, going to return $retobj\n";
 
 	if( defined( $retobj ) ){
-		my $nextnum = scalar @{$self->{'_curobjs'}};
+		my $nextnum = 0;
+		if( defined( $self->{'_curobjs'} ) ){
+			$nextnum = scalar @{$self->{'_curobjs'}};
+		}
 		if( ! defined( $nextnum ) ){
 			$nextnum = 0;
 		}elsif( $nextnum =~ /\D/ ){
@@ -4027,19 +4110,32 @@ Returns the parent object of the current object, or undef.
 sub parent {
 	my $self = shift;
 
-	my $arg = shift;
-	if( defined( $arg ) ){
-		$self->{'_parent'} = $arg;
+	if( @_ ){
+		if( $Jabber::Lite::WeakRefs ){
+			Scalar::Util::weaken($self->{'_parent'} = shift);
+			# warn( "$self: Set SUW parent to " . $self->{'_parent'} . "\n" );
+		}else{
+			# warn( "$self: Set parent to " . $self->{'_parent'} . "\n" );
+			$self->{'_parent'} = shift;
+		}
+	}else{
+		# warn( "$self: Unset parent on " . $self->name . "\n" );
 	}
 
 	return( $self->{'_parent'} );
+}
 
+# Hidden method to remove it; the name is MaGiC in AUTOLOAD.
+sub del_parent_link {
+	my $self = shift;
+	$self->{'_parent'} = undef;
 }
 
 =head2 hide
 
 Remove references to the current object from the parent object, effectively
-deleting it.  Returns 1 if successful, 0 if no valid parent.
+deleting it.  Returns 1 if successful, 0 if no valid parent.  If there are
+any child-objects, removes references to this object from them.
 
 =cut
 
@@ -4050,6 +4146,23 @@ sub hide {
 	if( defined( $self->parent() ) ){
 		$retval = $self->parent->hidechild( $self );
 	}
+
+	if( defined( $self->{'_curobjs'} ) ){
+		my $numchild = scalar @{$self->{'_curobjs'}};
+		if( defined( $numchild ) ){
+			while( $numchild > 0 ){
+				$numchild--;
+				# warn( "$self: Invoking parent dereference on $numchild\n" );
+				# This duplicates hide() and hidechild(), but
+				# we don't want to jump through too many
+				# hoops right now.
+				${$self->{'_curobjs'}}[$numchild]->del_parent_link( undef );
+				${$self->{'_curobjs'}}[$numchild] = undef;
+				delete( ${$self->{'_curobjs'}}[$numchild] );
+			}
+		}
+	}
+
 	return( $retval );
 }
 
@@ -4062,6 +4175,7 @@ to delete.  Returns 1 if successful, 0 if not.
 
 sub hidechild {
 	my $self = shift;
+	my $arg = shift;
 	my $match = $arg;
 
 	my $retval = 0;
@@ -4100,6 +4214,46 @@ sub hidechild {
 	return( $retval );
 }
 
+=head2 hidetree
+
+This routine removes references to this object, and to objects below it.
+In certain versions of perl, this may assist with cleanup.
+
+=cut
+
+# ->hidetree is in two parts.  This is the first part, which invokes the
+# recursive routine and then removes the reference to ourselves from our
+# parent.
+sub hidetree {
+	my $self = shift;
+
+	$self->hidetree_recurse();
+	return( $self->hide() );
+}
+
+# This is the second part.  It avoids the recursing routine on each
+# child object from querying the current object again to remove 
+# itself, as is done by ->hide.
+sub hidetree_recurse {
+	my $self = shift;
+
+	# Go through our children objects and invoke this routine.
+	if( defined( $self->{'_curobjs'} ) ){
+		my $loop = scalar( @{$self->{'_curobjs'}} );
+		while( $loop > 0 ){
+			$loop--;
+			if( defined( ${$self->{'_curobjs'}}[$loop] ) ){
+				# Recurse.
+				${$self->{'_curobjs'}}[$loop]->hidetree_recurse();
+				# Delete the reference to us.
+				${$self->{'_curobjs'}}[$loop]->del_parent_link();
+			}
+			delete( ${$self->{'_curobjs'}}[$loop] );
+		}
+	}
+
+}
+
 =head2 toStr
 
 Returns the object in a single string.  Takes an optional hash consisting
@@ -4128,6 +4282,11 @@ sub toStr {
 	my $fh = $args{"FH"};
 	my $doend = 0;
 
+	my $dval = $self->_check_val( '_debug' );
+	if( $dval ){
+		$dval = $self->{'_debug'};
+	}
+
 	if( ! $args{"GenClose"} ){
 		$doend = 1;
 	}
@@ -4140,7 +4299,7 @@ sub toStr {
 		$usefh = 1;
 	}
 
-	$self->debug( "toStr starting\n");
+	$self->debug( "toStr starting\n") if( $dval );
 	if( ! $usefh ){
 		$retstr = "<" . $self->name();
 	}else{
@@ -4232,19 +4391,19 @@ sub toStr {
 		}
 	}
 
-	$self->debug( "toStr now have $retstr\n" );
+	$self->debug( "toStr now have $retstr\n" ) if( $dval );
 
 	my $gotmore = 0;
 	if( defined( $self->{'_data'} ) ){
-		$self->debug( "toStr has _data\n");
+		$self->debug( "toStr has _data\n") if( $dval );
 		$gotmore++;
 	}elsif( defined( $self->{'_curobjs'} ) ){
-		$self->debug( "toStr has _cur_objs\n" );
+		$self->debug( "toStr has _cur_objs\n" ) if( $dval );
 		if( ( scalar @{$self->{'_curobjs'}} ) > 0 ){
 			$gotmore++;
 		}
 	}
-	$self->debug( "toStr G $gotmore M $mustend D $doend\n");
+	$self->debug( "toStr G $gotmore M $mustend D $doend\n") if( $dval );
 
 	# Close off the start tag.
 	if( ! $gotmore || $mustend ){
@@ -4320,7 +4479,7 @@ sub toStr {
 		}
 	}	
 
-	$self->debug( "toStr ending with $retstr\n" );
+	$self->debug( "toStr ending with $retstr\n" ) if( $dval );
 	# print STDERR "$self returning X $retstr X\n";
 	chomp( $retstr );
 
@@ -4475,10 +4634,14 @@ sub parse_more {
 
 	my $str = shift;
 
+	my $dval = $self->_check_val( '_debug' );
+	if( $dval ){
+		$dval = $self->{'_debug'};
+	}
 	if( defined( $self->name() ) ){
-		$self->debug( " " . $self->name() . " Invoked with $str\n" );
+		$self->debug( " " . $self->name() . " Invoked with $str\n" ) if( $dval );
 	}else{
-		$self->debug( " (no name) Invoked with $str\n" );
+		$self->debug( " (no name) Invoked with $str\n" ) if( $dval );
 	}
 
 	my $retval = 0;
@@ -4503,7 +4666,7 @@ sub parse_more {
 	while( $pmloop > 0 && length( $str ) > 0 ){
 		$pmloop--;
 
-		$self->debug( " $pmloop status of $curstatus\n" );
+		$self->debug( " $pmloop status of $curstatus\n" ) if( $dval );
 
 		# First possible - adding to the name.  The text received
 		# is a continuation of the name.
@@ -4517,7 +4680,7 @@ sub parse_more {
 				if( $namefurther =~ /^([^\/]*\/>)(.*)$/s ){
 					$namefurther = $1;
 
-					# This juggling to avoid a warning.
+					# This juggling is to avoid a warning.
 					my $r2 = $2;
 					my $ostr = $str;
 					$str = "";
@@ -4530,7 +4693,7 @@ sub parse_more {
 				}elsif( $namefurther =~ /^([^>]*>)(.*)$/s ){
 					$namefurther = $1;
 
-					# This juggling to avoid a warning.
+					# This juggling is to avoid a warning.
 					my $r2 = $2;
 					my $ostr = $str;
 					$str = "";
@@ -4627,7 +4790,7 @@ sub parse_more {
 					$str = "";
 				}
 
-				$self->debug( " ($curstatus) Remaining is $str X\n" );
+				$self->debug( " ($curstatus) Remaining is $str X\n" ) if( $dval );
 
 
 			# A space, indicating the end of the name tag, and onto the
@@ -4701,7 +4864,7 @@ sub parse_more {
 						if( $self->{'_processinginstructions'} =~ /\?>$/s ){
 							$self->{'_processinginstructions'} =~ s/\?>$//sg;
 							# chomp( $self->{'_processinginstructions'} );
-							$self->debug( " PI is " . $self->{'_processinginstructions'} . " X " . $str . " X\n" );
+							$self->debug( " PI is " . $self->{'_processinginstructions'} . " X " . $str . " X\n" ) if( $dval );
 							# $loop++;
 							$curstatus = "complete";
 							$stillgoing = 0;
@@ -4937,7 +5100,7 @@ sub parse_more {
 			# Now, we retrieve the text to be returned.  This is based on
 			# the $loop value, to retrieve the text further passed that.
 
-			$self->debug( "End of loop: $curstatus $loop, $strlength, $str X\n" );
+			$self->debug( "End of loop: $curstatus $loop, $strlength, $str X\n" ) if( $dval );
 			if( $loop < $strlength ){
 				# Remember that $loop is the character that we
 				# have read, and $strlength has been decremented
@@ -4949,20 +5112,20 @@ sub parse_more {
 				$str = "";
 			}
 
-			$self->debug( " seeing whether curstatus ($curstatus) is subtag and name (" . $self->name() . ") is in incomplete\n" );
+			$self->debug( " seeing whether curstatus ($curstatus) is subtag and name (" . $self->name() . ") is in incomplete\n" ) if( $dval );
 			if( $curstatus eq 'subtag' ){
 				# This point is good for checking
 				# whether this name matches the
 				# one specified as 'expect-incomplete'.
 				if( defined( $self->{'_expect-incomplete'} ) ){
-					$self->debug( " curstatus is subtag, and incomplete is " . $self->{'_expect-incomplete'} . "\n" );
-					$self->debug( " incomplete hash exists\n" );
+					$self->debug( " curstatus is subtag, and incomplete is " . $self->{'_expect-incomplete'} . "\n" ) if( $dval );
+					$self->debug( " incomplete hash exists\n" ) if( $dval );
 					if( defined( $self->{'_expect-incomplete'}{$self->{'_name'}} ) ){
-						$self->debug( " incomplete matches\n" );
+						$self->debug( " incomplete matches\n" ) if( $dval );
 						$curstatus = "complete";
 					}
 				}else{
-					$self->debug( " curstatus is subtag, and incomplete is undef" );
+					$self->debug( " curstatus is subtag, and incomplete is undef" ) if( $dval );
 				}
 			}
 
@@ -5031,7 +5194,7 @@ sub parse_more {
 						}else{
 							# Insufficient data
 							# Push it back.
-							$self->debug( "pushing back on $thischar as $rstr is not a complete html escape." );
+							$self->debug( "pushing back on $thischar as $rstr is not a complete html escape." ) if( $dval );
 							$stillgoing = 0;
 						}
 					
@@ -5098,7 +5261,7 @@ sub parse_more {
 					# Store the status.
 					$curstatus = "subtag-" . $nextnum;
 
-					$self->debug( "setting7 status to $curstatus - nextnum is $nextnum X\n" );
+					$self->debug( "setting7 status to $curstatus - nextnum is $nextnum X\n" ) if( $dval );
 
 					# If this one was considered to be complete,
 					# change back to waiting for the next one.
@@ -5109,13 +5272,13 @@ sub parse_more {
 						$retval = 0;
 						if( ! defined( $self->{'_name'} ) ){
 							# print STDERR "I have no name and I must scream\n";
-							$self->debug( "I have no name?  This is odd." );
+							$self->debug( "I have no name?  This is odd." ) if( $dval );
 						}elsif( $self->{'_name'} =~ /^\?/ ){
 							$curstatus = "processinginstructions";
 						}elsif( $self->{'_name'} =~ /^\!/ ){
 							$curstatus = "doctype";
 						}
-						$self->debug( " found complete, back to $curstatus - returning $rtext X\n" );
+						$self->debug( " found complete, back to $curstatus - returning $rtext X\n" ) if( $dval );
 					}
 				}
 
@@ -5123,6 +5286,9 @@ sub parse_more {
 				if( $tval == -2 ){
 					$retval = -2;
 				}
+
+				# Try removing the reference here.
+				$tobj = undef;
 			}
 
 			# Add the remaining text to the given subtag.
@@ -5144,7 +5310,7 @@ sub parse_more {
 						# additional stuff to add to this
 						# object.
 						$curstatus = "subtag";
-						$self->debug( " setting8 status to $curstatus - offnum is $offnum X\n" );
+						$self->debug( " setting8 status to $curstatus - offnum is $offnum X\n" ) if( $dval );
 						# Are we actually elsewhere?
 						if( $self->{'_name'} =~ /^\?/ ){
 							$curstatus = "processinginstructions";
@@ -5195,11 +5361,11 @@ sub parse_more {
 
 		# Digest comments.
 		if( $curstatus eq 'comment' ){
-			$self->debug( " - comment with $str X\n" );
+			$self->debug( " - comment with $str X\n" ) if( $dval );
 			# Throw out stuff except for '-->'.  Push back any '-' 
 			# characters, but no more than two.
 			if( $str =~ /(\-\-)([^>]+.*)$/s ){
-				$self->debug( "doubledash found with no >\n" );
+				$self->debug( "doubledash found with no >\n" ) if( $dval );
 				# '--' must not appear within a comment
 				# except when closing a comment.
 				# section 2.5.
@@ -5207,7 +5373,7 @@ sub parse_more {
 				$retstr = $2;
 				return( $retval, $retstr );
 			}elsif( $str =~ /^([^>]+)>(.*)$/s ){
-				$self->debug( "closing > found\n" );
+				$self->debug( "closing > found\n" ) if( $dval );
 				my $doq = $1;
 				$str = $2;
 				if( $doq =~ /\-\-$/ ){
@@ -5275,7 +5441,7 @@ sub parse_more {
 		$retval = 1;
 	}
 
-	$self->debug( " Returning ($curstatus) $retval and $str\n" );
+	$self->debug( " Returning ($curstatus) $retval and $str\n" ) if( $dval );
 	# print STDERR "$self: Returning ($curstatus) $retval and $str\n" ;
 	return( $retval, $str );
 }
@@ -5392,7 +5558,7 @@ sub expandEntity {
 			$retval = chr( $1 );
 		}elsif( $arg =~ /^#x([A-Fa-f0-9])+$/ ){
 			# Hexadecimal reference.
-			$retval = chr( 0x . $jval );
+			$retval = chr( 0x . $arg );
 
 		# Maybe its something that has been defined?
 		}elsif( defined( $self->{'_entities'}{"$arg"} ) ){
@@ -5543,9 +5709,17 @@ sub debug {
 	my $arg = shift;
 
 	chomp( $arg );
+
+	# This check is repeated in some functions, to avoid the
+	# overhead of invoking ->debug as they are called very frequently.
 	my $dval = $self->_check_val( '_debug' );
 	if( $dval ){
 		$dval = $self->{'_debug'};
+
+		# Do this before invoking caller(); saves oodles of time.
+		if( $dval eq "0" ){
+			return( 0 );
+		}
 	}else{
 		return( 0 );
 	}
@@ -5598,10 +5772,17 @@ large data sizes in a graceful fashion.
 January 2006: The author completed a version which would, at least, not 
 barf on most things.
 
+January through September 2006: Being busy with other things, the author
+periodically ran screaming from memory leakage problems similar to 
+XML::Parser..  Finally, a casual mention in one of the oddest places 
+lead the author to a good explanation of how Perl does not deal with
+circular dependencies.
+
 =head1 PREREQUISITES / DEPENDENCIES
 
 IO::Socket::INET, IO::Select .  Thats it.  Although, if you want encryption
-on your connection or to support SASL, there are soft dependencies on:
+on your connection, SASL support or reasonable garbage collection in various
+versions of perl, there are soft dependencies on:
 
 =over 4
 
@@ -5621,8 +5802,34 @@ SASL magic.  Hooray.
 
 This is used for some authentication methods.
 
+=item Scalar::Util
+
+Helps with memory management, saving this library from being caught in
+the hell of circular dependencies, which in turn avoids circular 
+dependencies from making the use of this library hell on memory, which if I
+remember avoids the circular dependency hell.
+
 =back
 
+=head1 BUGS
+
+This library triggers a bug in certain versions of the c2s daemon, at 
+least in the jabberd2 2.0s9 to s14 versions.  The issue is that, as far
+as I can tell, this library does The Right Thing (tm) concerning session
+establishment after SASL authentication, at which point the c2s component 
+promptly dies.  A workaround is to add "Method => 'jabber:iq:auth' to the
+call to ->authenticate.
+
+Perl's garbage collection is at times rather dubious.  A prime example
+is when you have double-linked lists, otherwise known as circular 
+references.  Since both objects refer to each other (in recording
+parent <-> child relationships), perl does not clean them up until the
+end of the program.  Whilst this library does do some tricks to get around
+this in newer versions of perl, involving proxy objects and 
+'weaken' from Scalar::Util , this library may leak memory in older versions
+of perl.  Invoking ->hidetree on a retrieved object before it falls out
+of scope is recommended (the library does this on some internal objects,
+perhaps obsessively).
 
 =head1 AUTHOR
 

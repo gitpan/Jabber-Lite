@@ -1,4 +1,12 @@
 
+0.6 2006/09 - Bruce Campbell
+	- This may sting a little.
+
+		* Fixed a circular dependency that was stopping perl garbage
+		  collection from working.
+		* Reduced overhead in some core routines, resulting in a
+		  faster parser.
+
 0.5 2006/06 - Bruce Campbell
 	- Thats no moon...
 
@@ -11,14 +19,14 @@
 		* Intended Initial CPAN Release
 		* Resolution of SRV Records.
 
-0.3 2005/02 - Bruce Campbell
+0.3 2006/02 - Bruce Campbell
 	- I'd talk to the hand, but I have a clear above-the-belt chat policy.
 
 		* Reworking to avoid blocking wherever possible.
 		* Tidy up of debug calls and other cruft.
 		* Addition of various RFC goodness.
 
-0.2 2005/01 - Bruce Campbell
+0.2 2006/01 - Bruce Campbell
 	- Theres something about all those legs that sends shivers down my spine
 
 		* Hopeful extermination of parsing bugs.
