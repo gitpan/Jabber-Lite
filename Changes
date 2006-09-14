@@ -1,4 +1,10 @@
 
+0.7 2006/09 - Bruce Campbell
+	- If we all spoke the same language, where would we get our women from?
+
+		* Shifted Jabber::LiteImpl to Jabber::Lite::Impl after realised
+		  that CPAN counts it as another namespace.
+
 0.6 2006/09 - Bruce Campbell
 	- This may sting a little.
 

@@ -1,6 +1,6 @@
 ###################################################################
 # Jabber::Lite
-# $Id: Jabber::Lite.pm,v 1.61 2006/09/14 09:47:43 bc Exp $
+# $Id: Jabber::Lite.pm,v 1.63 2006/09/14 10:18:15 bc Exp $
 # Copyright (C) 2005-2006 Bruce Campbell <beecee@cpan.zerlargal.org>
 #
 # This is a perl library intended to be a small and light implementation
@@ -109,7 +109,7 @@ BEGIN {
 sub new {
 	my $class = shift;
 	no strict 'refs';
-	my $impl = $class . "Impl";
+	my $impl = $class . "::Impl";
 	my $this = $impl->new(@_);
 	if ($Jabber::Lite::WeakRefs) {
 		return $this;
@@ -149,7 +149,7 @@ sub AUTOLOAD {
 # sub DESTROY { my $self = shift; warn("Lite::DESTROY $self\n") }
 
 # Now for the actual package.
-package Jabber::LiteImpl;
+package Jabber::Lite::Impl;
 use constant r_HANDLED => -522201;
 use Exporter;
 
@@ -166,7 +166,7 @@ use vars qw/@ISA $VERSION @EXPORT @EXPORT_OK %EXPORT_TAGS/;
 my $con;
 push @EXPORT_OK, @$con while (undef, $con) = each %EXPORT_TAGS;
 
-$VERSION = "0.6";
+$VERSION = "0.7";
 
 use IO::Socket::INET;
 use IO::Select;
@@ -3030,7 +3030,7 @@ sub send {
 
 		# Deal with either the public or hidden class.	
 		my $tref = ref( $arg );	
-		if ( ( $tref eq 'Jabber::Lite' || $tref eq 'Jabber::LiteImpl' ) && $nwritable && $amconnected ) {
+		if ( ( $tref eq 'Jabber::Lite' || $tref eq 'Jabber::Lite::Impl' ) && $nwritable && $amconnected ) {
 			# print "OBJECT is " . $arg->toStr . "\n";
 			# print "WRI";
 			$retval = $self->socket->send( $arg->toStr );
