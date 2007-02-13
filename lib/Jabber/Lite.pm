@@ -1,7 +1,9 @@
 ###################################################################
 # Jabber::Lite
-# $Id: Jabber::Lite.pm,v 1.63 2006/09/14 10:18:15 bc Exp $
-# Copyright (C) 2005-2006 Bruce Campbell <beecee@cpan.zerlargal.org>
+# $Id: Jabber::Lite.pm,v 1.64 2007/01/29 20:44:34 bc Exp bc $
+# Copyright (C) 2005-2007 Bruce Campbell <beecee@cpan.zerlargal.org>
+# ( For my mail sorting, replace the above 'beecee' with the name
+#   of the module, eg 'Jabber::Lite' or 'Jabber-Lite' )
 #
 # This is a perl library intended to be a small and light implementation
 # of Jabber libraries.  Nearly a third of this file is documentation of
@@ -166,7 +168,7 @@ use vars qw/@ISA $VERSION @EXPORT @EXPORT_OK %EXPORT_TAGS/;
 my $con;
 push @EXPORT_OK, @$con while (undef, $con) = each %EXPORT_TAGS;
 
-$VERSION = "0.7";
+$VERSION = "0.8";
 
 use IO::Socket::INET;
 use IO::Select;
@@ -183,7 +185,33 @@ sub DESTROY {
 
 =head1 METHODS
 
-The methods within have been organised into several categories.
+The methods within have been organised into several categories, listed here
+for your searching pleasure:
+
+=over
+
+=item Initialisation
+
+=item Resolving
+
+=item Connecting
+
+=item Authenticating
+
+=item Dealing with <stream:features>
+
+=item Handling Packets
+
+=item So Long, and Thanks for all the <fish/>
+
+=item These are a few of my incidental things
+
+=item Object common
+
+=item Object detailed and other stuff.
+
+=back
+
 
 =cut
 
@@ -1072,7 +1100,7 @@ sub connect {
 					$SSLHash{"$kkey"} = $args{"$kkey"};
 				}
 
-				$self->debug( "connect: Startting up SSL\n" );
+				$self->debug( "connect: Starting up SSL\n" );
 				my $newsock = IO::Socket::SSL->start_SSL( $self->socket,
 								%SSLHash,
 								);
@@ -1108,6 +1136,8 @@ sub connect {
 	# Can we still go?  
 	if( $cango ){
 		# Output the initial tags.
+		# RFC3920 11.4 says that implementations SHOULD supply
+		# the opening text declaration (xml version/encoding)
 		my $xmlobj = $self->newNode( "?xml" );
 		$xmlobj->attr( "version", "1.0" );
 		$self->send( $xmlobj );
@@ -1603,7 +1633,7 @@ sub bgauthenticated {
 			my $handshake = $self->newNode( 'handshake' );
 			my $gotdsha1 = $self->_got_Digest_SHA1();
 			if( $gotdsha1 ){
-				$handshake->data( lc( sha1_hex( $self->{'streamid'} . $self->{'_authenticateargs'}{'ComponentSecret'} ) ) );
+				$handshake->data( lc( Digest::SHA1::sha1_hex( $self->{'streamid'} . $self->{'_authenticateargs'}{'ComponentSecret'} ) ) );
 			}
 			$self->send( $handshake );
 			$self->register_handler( "handshake", sub { $self->_bgauthenticated_handler( @_ ) }, "authenticate" );
@@ -1637,13 +1667,26 @@ sub bgauthenticated {
 			$self->debug( " Found auth $kkey\n");
 			# print STDERR ( " Found auth $kkey\n");
 
+			my $jiqauth = 0;
+
 			if( defined( $self->{'_authenticateargs'}{"Method"} ) ){
 				my $mtest = lc( $self->{'_authenticateargs'}{"Method"} );
 				next unless( $kkey =~ /^$mtest\-/ );
+
+				$jiqauth = 1 if( $kkey eq "jabber:iq:auth" );
 			}
 
 			if( defined( $self->{'_authenticateargs'}{"Mechanism"} ) ){
 				my $mtest = lc( $self->{'_authenticateargs'}{"Mechanism"} );
+
+				# Remap the name if preferring jabber:iq:auth
+				# TODO 0.9 - Check this logic.
+				# if( $jiqauth ){
+					# $mtest = "token" if( $mtest eq "anonymous" );
+					# $mtest = "digest" if( $mtest eq "digest-md5" );
+					# $mtest = "password" if( $mtest eq "plain" );
+# 
+				# }
 				next unless( $kkey =~ /^[^\-\]\-$mtest$/ );
 			}
 
@@ -1720,18 +1763,18 @@ sub bgauthenticated {
 
 		}elsif( defined( $rauths{"jabber:iq:auth-token"} ) && $gotdsha1 && 1 == 2 ){
 			# zero knowledge.  We snarf the original values.
-			# Copied from Jabber::Connection.  This code does not work
-			# against my server, so is disabled.
+			# Copied from Jabber::Connection.  This code does not 
+			# work against my server, so is disabled.
 			$sendiq++;
 			$usedauth = "jabber:iq:auth-zerok";
 			my $htag = $querytag->insertTag( 'hash' );
-			my $hval = sha1_hex( $self->{'Password'} );
+			my $hval = DIGEST::SHA1::sha1_hex( $self->{'Password'} );
 			my $seq = $availableauths{"jabber:iq:auth-sequence"};
 			my $token = $availableauths{"jabber:iq:auth-token"};
 			$self->debug( " Got seq of $seq and $token X\n");
-			$hval = sha1_hex( $hval . $token );
+			$hval = Digest::SHA1::sha1_hex( $hval . $token );
 			# Aie! Keep hashing until sequence decremented to 0??
-			$hval = sha1_hex( $hval ) while( $seq-- );
+			$hval = Digest::SHA1::sha1_hex( $hval ) while( $seq-- );
 			$htag->data( $hval );
 
 		}elsif( defined( $rauths{"jabber:iq:auth-digest"} ) && $gotdsha1 ){
@@ -1739,7 +1782,7 @@ sub bgauthenticated {
 			$sendiq++;
 			$usedauth = "jabber:iq:auth-digest";
 			my $dtag = $querytag->insertTag( 'digest' );
-			$dtag->data( sha1_hex( $self->{'streamid'} . $self->{'_authenticateargs'}{"Password"} ) );
+			$dtag->data( Digest::SHA1::sha1_hex( $self->{'streamid'} . $self->{'_authenticateargs'}{"Password"} ) );
 		}elsif( defined( $rauths{"jabber:iq:auth-password"} ) ){
 			# plain password.
 			$sendiq++;
@@ -1805,7 +1848,7 @@ sub bgauthenticated {
 			}
 			$self->debug("Waiting on bind result" );
 			$retval = -1;
-		}elsif( $retval == 1 && $self->_check_val( '_need_auth_bind' ) && ! $self->_check_val( '_auth_finished' ) ){
+		}elsif( $retval == 1 && $self->_check_val( '_need_auth_bind' ) && ! $self->_check_val( '_done_auth_bind' ) ){
 			# Have we got the results from the bind back?
 			$retval = -1;
 			$self->debug( " checking result of bgbinded\n");
@@ -1949,7 +1992,12 @@ sub _bgauthenticated_handler {
 				# tag again;  Remember that those connect 
 				# handlers are still set up.
 				$self->{'stream:features'} = undef;
-				$self->connect( '_redo' => 1, JustConnectAndStream => 1 );
+
+				# Implementation bug: Missing the domain 
+				# ('to') from the <stream:stream> tag after 
+				# successful SASL authentication results in 
+				# jabberd2's c2s component dying.  
+				$self->connect( '_redo' => 1, JustConnectAndStream => 1, Domain => $self->{'_authenticateargs'}{"Domain"} );
 				$self->{'_need_auth_stream'} = 1;
 
 			}elsif( $node->name eq 'challenge' && $node->xmlns() eq $saslxmlns ){
@@ -2050,7 +2098,7 @@ Some incidental things.
 =head2 stream_features
 
 This method returns the latest <stream:features> tag received from the
-server, or undef.  It is used internally by the ->bind method.
+server, or undef.  It is used internally by the ->bind and ->session methods.
 
 Note that during the ->connect() and ->authenticate() phases, certain of
 these features may get 'used', and thus not returned by the server the
@@ -2454,11 +2502,16 @@ sub bind {
 	if( $args{"Process"} eq "if-required" ){
 		my $stag = $self->stream_features();
 		if( defined( $stag ) ){
+			# <bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'/>
 			my $btag = $stag->getTag( "bind", $self->ConstXMLNS( "xmpp-bind" ) );
 			if( defined( $btag ) ){
 				# We got the tag.  We must do this.
 				$doso = 1;
+			}else{
+				$self->debug( "No bind tag - ?" . $stag->toStr . " $stag" );
 			}
+		}else{
+			$self->debug( "No stream:features?" );
 		}
 	}elsif( $args{"Process"} eq "always" ){
 		# We don't care.
@@ -2469,11 +2522,14 @@ sub bind {
 	my $stillgoing = 0;
 	if( $doso ){
 
+		$self->debug( "Performing bind based on " . $args{"Process"} );
+
 		# Send the initial packet.
 		my $idval = rand(65535 . time );
 		my $iqpkt = $self->newNode( 'iq' );
 		$iqpkt->attr( 'id', $idval );
 		$iqpkt->attr( 'type', 'set' );
+		$iqpkt->attr( 'to', $self->{'_authenticateargs'}{"Domain"} );
 		my $bindtag = $iqpkt->insertTag( 'bind', $self->ConstXMLNS( 'xmpp-bind' ) );
 		if( defined( $args{"Resource"} ) ){
 			my $rtag = $bindtag->insertTag( 'resource' );
@@ -2485,6 +2541,8 @@ sub bind {
 		$stillgoing = $self->send( $iqpkt );
 		$self->register_handler( 'iq', sub { $self->_bind_handler(@_) }, "authenticate" );
 		%{$self->{'_bindargs'}} = %args;
+	}else{
+		$self->debug( "Not performing bind based on " . $args{"Process"} );
 	}
 
 	if( $doso && $stillgoing ){
@@ -2551,6 +2609,11 @@ sub bgbinded {
 	return( $retval );
 }
 
+sub bgbound {
+	my $self = shift;
+	return( $self->bgbinded( @_ ) );
+}
+
 sub _bind_handler {
 	my $self = shift;
 	my $node = shift;
@@ -2589,6 +2652,7 @@ sub _bind_handler {
 							my $iqpkt = $self->newNode( 'iq' );
 							$iqpkt->attr( 'id', $idval );
 							$iqpkt->attr( 'type', 'set' );
+							$iqpkt->attr( 'to', $self->{'_authenticateargs'}{"Domain"} );
 							my $bindtag = $iqpkt->insertTag( 'bind', $self->ConstXMLNS( 'xmpp-bind' ) );
 
 							# If Random is set, we
@@ -2611,8 +2675,10 @@ sub _bind_handler {
 	}
 
 	# Mild cleanup.
-	if( $retval == 1 ){
-		delete( $self->{'_bindargs'} );
+	if( defined( $retval ) ){ 
+		if( $retval == r_HANDLED ){
+			delete( $self->{'_bindargs'} );
+		}
 	}
 
 	return( $retval );
@@ -2933,7 +2999,7 @@ sub process {
 				my $maxhandlers = scalar( @{$self->{'handlers'}{$curname}{$thisclass}} );
 				while( $loop < $maxhandlers && $stillgoing ){
 					eval {
-						$self->debug( "handing $tobj and $persisdata to $curname handler $loop\n" ) if( $dval );
+						$self->debug( "handing $tobj and " . ( defined( $persisdata ) ? $persisdata : "undef" ) . " to $curname handler $loop\n" ) if( $dval );
 						$persisdata = ${$self->{'handlers'}{$curname}{$thisclass}}[$loop]->( $tobj, $persisdata );
 					};
 
@@ -3005,8 +3071,10 @@ Sends either text or an object down the connected socket.  Returns
 a count of the number of bytes read.  Will return '-1' if an error
 occured and the text was not sent.
 
-=cut
+Note that if you send non-XML data (gibberish or incomplete), thats
+your problem, not mine.
 
+=cut
 
 sub send {
 
@@ -3027,19 +3095,53 @@ sub send {
 			$amconnected = 1;
 		}
 
+		# IO::Socket::SSL does not have send; I missed this when
+		# changed from syswrite.
+		my $usesend = 1;
+
+		if( ! defined( $self->{'_checked_send_ability'} ) ){
+			my $tsock = $self->socket();
+			my $tref = ref( $tsock );
+			if( $tref =~ /SSL/ ){
+				# Does it have send?
+				if( $amconnected && $nwritable ){
+					eval {
+						$self->socket->send( " " );
+					};
+					if( $@ ){
+						# We got an error.
+						$usesend = 0;
+					}
+					$self->{'_checked_send_ability'} = $usesend;
+				}
+			}
+		}else{
+			$usesend = $self->{'_checked_send_ability'};
+		}
+
 
 		# Deal with either the public or hidden class.	
 		my $tref = ref( $arg );	
 		if ( ( $tref eq 'Jabber::Lite' || $tref eq 'Jabber::Lite::Impl' ) && $nwritable && $amconnected ) {
 			# print "OBJECT is " . $arg->toStr . "\n";
 			# print "WRI";
-			$retval = $self->socket->send( $arg->toStr );
+			if( $usesend ){
+				$retval = $self->socket->send( $arg->toStr );
+			}else{
+				$retval = $self->socket->syswrite( $arg->toStr );
+			}
+			$self->debug( "Sent off $arg" );
 			# print "TE $retval - $@\n";
 		}elsif( $nwritable && $amconnected ) {
 			# print "object is " . $arg . "\n";
 			# print "wri";
-			$retval = $self->socket->send( $arg );
+			if( $usesend ){
+				$retval = $self->socket->send( $arg );
+			}else{
+				$retval = $self->socket->syswrite( $arg );
+			}
 			# print "te (" . $arg . ") $retval - $@\n";
+			$self->debug( "Sent off $arg" );
 		}else{
 			$self->debug( "socket is not writable or is disconnected." );
 			$self->abort();
@@ -3107,8 +3209,10 @@ sub abort {
 			}else{
 				close( $self->socket() );
 			}
+			delete( $self->{'_checked_send_ability'} );
 		}else{
 			close( $self->socket() );
+			delete( $self->{'_checked_send_ability'} );
 		}
 		$self->{'_socket'} = undef;
 		$retval++;
@@ -3129,7 +3233,7 @@ Returns (or sets) the socket that this object is using.  This is provided
 to support a parent program designed around its own IO::Select() loop.  
 A previously opened socket/filehandle can be supplied as the argument.
 
-Note: The library uses sysread() and syswrite() as required.  Passing
+Note: The library uses sysread() and send/syswrite() as required.  Passing
 in filehandles that do not support these functions is probably a bad
 idea.
 
@@ -3147,6 +3251,7 @@ sub socket {
 	# print STDERR "SOCKET HAS $arg\n";
 	if( defined( $arg ) ){
 		$self->{'_socket'} = $arg;
+		delete( $self->{'_checked_send_ability'} );
 
 		# Set up an IO::Select object.
 		$self->{'_select'} = new IO::Select;
@@ -3280,6 +3385,7 @@ sub do_read {
 		}elsif( $tval > 0 ){
 			# We did get some bytes.  First add it
 			# to the pending buffer.
+			$self->debug( "Read in $buf" );
 			$self->{'_pending'} .= $buf;
 
 			# We just read something.  Not EOF.
@@ -3607,10 +3713,16 @@ sub _connect_handler {
 
 	if( defined( $node ) ){
 		my $nodename = lc( $node->name() );
-		$self->debug( " Got $node($nodename) and $persisdata X\n" );
+		$self->debug( " Got $node($nodename) and " . ( defined( $persisdata ) ? $persisdata : "undef" ) . " X\n" );
 
 		if( $nodename eq '?xml' ){
+			# RFC3920 11.4 says that applications MUST deal with
+			# the opening text declaration.  We don't unfortunately,
+			# and we don't pass it back to the caller.  This is 
+			# something for 0.9 .
 			$retval = r_HANDLED;
+			$self->xml_version( value => $node->attr( "version" ) );
+			$self->xml_encoding( value => $node->attr( "encoding" ) );
 		}elsif( $nodename eq 'stream:stream' ){
 			$retval = r_HANDLED;
 
@@ -3646,11 +3758,16 @@ sub _connect_handler {
 			}
 		}elsif( $nodename eq 'stream:error' ){
 			$retval = r_HANDLED;
-			$self->{'stream:error'} = $node;
+			# Create a new node, as the previous one gets bits of it
+			# automagically destroyed at the end.
+			$self->{'stream:error'} = $self->newNodeFromStr( $node->toStr );
 			$self->disconnect();
 		}elsif( $nodename eq 'stream:features' ){
 			$retval = r_HANDLED;
-			$self->{'stream:features'} = $node;
+
+			# Create a new node, as the previous one gets bits of it
+			# automagically destroyed at the end.
+			$self->{'stream:features'} = $self->newNodeFromStr( $node->toStr );
 
 			# Run through the list, and initiate tls if required.
 			my $tlsxmlns = $self->ConstXMLNS( "xmpp-tls" );
@@ -3696,26 +3813,35 @@ sub _connect_handler {
 	return( $retval );
 }
 
-# 
-# <stream:stream xmlns:stream='http://etherx.jabber.org/streams' xmlns='jabber:client' from='lskjdflk.zerlargal.org' version='1.0' id='lj7gge50rsfh39hikzirozzv10eb8rdh37p0ksmi'>
-#	<stream:error xmlns:stream='http://etherx.jabber.org/streams'>
-#		<host-unknown xmlns='urn:ietf:params:xml:ns:xmpp-streams'/>
-#		<text xmlns='urn:ietf:params:xml:ns:xmpp-streams'>
-#			service requested for unknown domain
-#		</text>
-#	</stream:error>
-# </stream:stream>
+=head2 xml_version
 
-# <?xml version='1.0'?>
-# <stream:stream xmlns:stream='http://etherx.jabber.org/streams' xmlns='jabber:client' from='zerlargal.org' version='1.0' id='4qytowsb4wofpn7qkyo1d1imyu0i3k0ule7s020e'>
-#	<stream:features xmlns:stream='http://etherx.jabber.org/streams'>
-#		<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>
-#		<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>
-#			<mechanism>ANONYMOUS</mechanism>
-#			<mechanism>DIGEST-MD5</mechanism>
-#			<mechanism>PLAIN</mechanism>
-#		</mechanisms>
-#	</stream:features>
+This returns the version supplied by the last <?xml?> tag received.
+
+=cut
+
+sub xml_version {
+	my $self = shift;
+	my %args = ( @_ );
+	if( exists( $args{"value"} ) ){
+		$self->{'_xml_version'} = $args{"value"};
+	}
+	return( $self->{'_xml_version'} );
+}
+
+=head2 xml_encoding
+
+This returns the encoding supplied by the last <?xml?> tag received.
+
+=cut
+
+sub xml_encoding {
+	my $self = shift;
+	my %args = ( @_ );
+	if( exists( $args{"value"} ) ){
+		$self->{'_xml_encoding'} = $args{"value"};
+	}
+	return( $self->{'_xml_encoding'} );
+}
 
 ############################################################################
 # Functions for the object as XML document holder.  OO style, so we
@@ -4186,7 +4312,11 @@ sub hidechild {
 		my $loop = 0;
 		my $maxval = scalar( @{$self->{'_curobjs'}} );
 		while( $loop < $maxval ){
-			if( ${$self->{'_curobjs'}}[$loop] == $match ){
+			if( defined( ${$self->{'_curobjs'}}[$loop] ) ){ 
+				if( ${$self->{'_curobjs'}}[$loop] == $match ){
+					$todel{"$loop"}++;
+				}
+			}else{
 				$todel{"$loop"}++;
 			}
 			$loop++;
@@ -4299,7 +4429,7 @@ sub toStr {
 		$usefh = 1;
 	}
 
-	$self->debug( "toStr starting\n") if( $dval );
+	# $self->debug( "toStr starting\n") if( $dval );
 	if( ! $usefh ){
 		$retstr = "<" . $self->name();
 	}else{
@@ -4380,7 +4510,8 @@ sub toStr {
 			foreach my $attribname ( $self->listAttrs ){
 				my $attribvalue = $self->attr( $attribname );
 
-				$retstr .= " " . $attribname . "=\"" . $attribvalue . "\"";
+				# $retstr .= " " . $attribname . "=\"" . $attribvalue . "\"";
+				$retstr .= " " . $attribname . "=\'" . $attribvalue . "\'";
 			}
 		}else{
 			foreach my $attribname ( $self->listAttrs ){
@@ -5610,7 +5741,7 @@ sub _got_Net_DNS {
 	my $retval = 0;
 
 	eval {
-		use Net::DNS;
+		require Net::DNS;
 		$retval++;
 	};
 
@@ -5630,7 +5761,31 @@ sub _got_Digest_SHA1 {
 	my $retval = 0;
 
 	eval {
-		use Digest::SHA1 qw(sha1_hex);
+		# Eric Hacker found a problem where these 'use' lines within
+		# the 'eval' were being acted on on the program load; not
+		# execution.
+		# use Digest::SHA1 qw(sha1_hex);
+		require Digest::SHA1;
+		$retval++;
+	};
+
+	$self->debug( " returning $retval\n" );
+	return( $retval );
+}
+
+=head2 _got_Digest_MD5
+
+Helper function to load Digest::MD5 into the current namespace.
+
+=cut
+
+sub _got_Digest_MD5 {
+	my $self = shift;
+
+	my $retval = 0;
+
+	eval {
+		require Digest::MD5;
 		$retval++;
 	};
 
@@ -5670,7 +5825,7 @@ sub _got_MIME_Base64 {
 	my $retval = 0;
 
 	eval {
-		use MIME::Base64;
+		require MIME::Base64;
 		$retval++;
 	};
 
@@ -5690,7 +5845,7 @@ sub _got_IO_Socket_SSL {
 	my $retval = 0;
 
 	eval {
-		use IO::Socket::SSL;
+		require IO::Socket::SSL;
 		$retval++;
 	};
 
@@ -5701,6 +5856,9 @@ sub _got_IO_Socket_SSL {
 =head2 debug
 
 Debug is vor finding de bugs!
+
+Prints the supplied string, along with some other useful information, to
+STDERR, if the initial object was created with the debug flag.
 
 =cut
 
@@ -5813,13 +5971,6 @@ remember avoids the circular dependency hell.
 
 =head1 BUGS
 
-This library triggers a bug in certain versions of the c2s daemon, at 
-least in the jabberd2 2.0s9 to s14 versions.  The issue is that, as far
-as I can tell, this library does The Right Thing (tm) concerning session
-establishment after SASL authentication, at which point the c2s component 
-promptly dies.  A workaround is to add "Method => 'jabber:iq:auth' to the
-call to ->authenticate.
-
 Perl's garbage collection is at times rather dubious.  A prime example
 is when you have double-linked lists, otherwise known as circular 
 references.  Since both objects refer to each other (in recording
@@ -5829,15 +5980,16 @@ this in newer versions of perl, involving proxy objects and
 'weaken' from Scalar::Util , this library may leak memory in older versions
 of perl.  Invoking ->hidetree on a retrieved object before it falls out
 of scope is recommended (the library does this on some internal objects,
-perhaps obsessively).
+perhaps obsessively).  Note that you may need to create a copy of a
+object via newNodeFromStr/toStr due to this.
 
 =head1 AUTHOR
 
-Bruce Campbell, Zerlargal VOF, 2006 .  See http://zerlargal.org/c/
+Bruce Campbell, Zerlargal VOF, 2005-7 .  See http://cpan.zerlargal.org/Jabber::Lite
 
 =head1 COPYRIGHT
 
-Copyright (c) 2005-6 Bruce Campbell.  All rights reserved.  
+Copyright (c) 2005-7 Bruce Campbell.  All rights reserved.  
 This program is free software; you can redistribute it and/or 
 modify it under the same terms as Perl itself.
 

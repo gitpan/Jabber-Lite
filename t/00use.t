@@ -14,7 +14,7 @@ my $jobj = Jabber::Lite->new();
 if( defined( $jobj ) ){
 	ok( 1 );
 	my $vstr = $jobj->version();
-	if( $vstr eq "0.7" ){
+	if( $vstr eq "0.8" ){
 		ok( 1 );
 	}else{
 		ok( 0 );

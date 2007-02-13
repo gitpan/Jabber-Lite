@@ -1,4 +1,13 @@
 
+0.8 2007/01 - Bruce Campbell
+	- And thats how my brother became a BMW.
+
+		* Eric Hacker found a problem which lead to the 'use' lines
+		  within the 'eval's being changed to 'require'.
+		* Marc Pelzer caught a bad (new) usage of send where a working
+		  syswrite had been in place, breaking SSL in 0.7
+		* <stream:stream> always wants a 'to'.  
+
 0.7 2006/09 - Bruce Campbell
 	- If we all spoke the same language, where would we get our women from?
 

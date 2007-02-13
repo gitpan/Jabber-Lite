@@ -4,7 +4,7 @@
 
 use strict;
 use Test;
-BEGIN { plan tests => 5 }
+BEGIN { plan tests => 6 }
 
 # Just try to use the module.
 use Jabber::Lite; ok(1);
@@ -17,6 +17,7 @@ my @badobjs = (
 		"<doc></doc> ",
 		'<doc a1="v1"></doc>',
 		"<doc>&amp;&lt;&gt;&quot;'</doc>",
+		"<doc>&lt;tag?></doc>",
 		);
 
 foreach my $curobj( @badobjs ){
