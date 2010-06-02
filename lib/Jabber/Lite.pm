@@ -1,7 +1,6 @@
 ###################################################################
 # Jabber::Lite
-# $Id: Jabber::Lite.pm,v 1.64 2007/01/29 20:44:34 bc Exp bc $
-# Copyright (C) 2005-2007 Bruce Campbell <beecee@cpan.zerlargal.org>
+# Copyright (C) 2005-2010 Bruce Campbell <beecee@cpan.zerlargal.org>
 # ( For my mail sorting, replace the above 'beecee' with the name
 #   of the module, eg 'Jabber::Lite' or 'Jabber-Lite' )
 #
@@ -70,7 +69,7 @@ it does try to be fairly complete for common tasks.
 Whats in the box?  Jabber::Lite is able to connect to a Jabber server,
 read from the socket, and supply XML objects to the application as
 the application reads them.  Its function calls are mostly compatible
-with Jabber::NodeFactory and Jabber::Connection.  
+with L<Jabber::NodeFactory> and L<Jabber::Connection>.  
 Surprisingly, it can also function as a stand-alone XML parser (which
 was not the author's original intent, but hey, it works).
 
@@ -82,7 +81,7 @@ library uses a combination of 'pull' and 'push' methods of supplying
 XML objects.  Handlers for given object types can be put in place, 
 however if an object is not fully handled by a Handler, the object
 will 'block' further objects until the Application retrieves it.  Read 
-the notes on ->process and ->get_latest() for further details.
+the notes on ->process() and ->get_latest() for further details.
 
 The inbuilt parser, fully implemented in perl, is more properly termed an
 XML Recogniser.  If you want a fully compliant XML Parser, look elsewhere.
@@ -168,7 +167,7 @@ use vars qw/@ISA $VERSION @EXPORT @EXPORT_OK %EXPORT_TAGS/;
 my $con;
 push @EXPORT_OK, @$con while (undef, $con) = each %EXPORT_TAGS;
 
-$VERSION = "0.8";
+$VERSION = "0.8.1";
 
 use IO::Socket::INET;
 use IO::Select;
@@ -287,7 +286,7 @@ subroutines.
 
 =back
 
-The various 'max' settings are enforced by ->do_read.  Calling ->parse_more
+The various 'max' settings are enforced by ->do_read().  Calling ->parse_more()
 directly will not incur the dubious protections afforded by this.
 
 =cut
@@ -370,7 +369,7 @@ sub resolve {
 
 =head2 resolved
 
-Returns a list of what the last ->resolve request actually resolved to.
+Returns a list of what the last ->resolve() request actually resolved to.
 This is an ordered-by-priority, randomised-by-weight @list of 
 'IP.address,port'.  If there is no ',port', then no port information
 was present in the DNS, and the application's own idea of default
@@ -487,9 +486,10 @@ sub resolved {
 
 =head2 bgresolve
 
-As per ->resolve, but submit in the background.  This returns 1 if the query
+As per ->resolve(), but submit in the background.  This returns 1 if the query
 could be submitted, and 0 if not.
-( Actually, ->resolve is simply a wrapper around ->bgresolve and ->bgresolved )
+( Actually, ->resolve() is simply a wrapper around ->bgresolve() and
+->bgresolved() )
 
 =cut
 
@@ -594,10 +594,10 @@ sub bgresolve {
 
 =head2 bgresolved
 
-Checks to see whether the last ->bgresolve request completed.  Only one
+Checks to see whether the last ->bgresolve() request completed.  Only one
 request in the background can be ongoing at a time.  Returns -1 if the
 resolution is still pending, 0 if the resolution failed, and 1 if the
-resolution was successful.  ->resolved can then be called to retrieve
+resolution was successful.  ->resolved() can then be called to retrieve
 the list.
 
 =cut
@@ -876,7 +876,7 @@ The Host (name or IP address) to connect to.  Default is no host, and
 thus no connection.  Note that if a name of the Host is used, then 
 gethostbyname will be implicitly used by IO::Socket::INET, blocking the
 application whilst doing so.  Calling applications may wish to avail
-themselves of the ->resolve methods listed earlier to avoid this.
+themselves of the ->resolve() methods listed earlier to avoid this.
 
 =item Port
 
@@ -971,16 +971,19 @@ information.  No values are set up by default.
 
 A boolean which indicates that a socket has previously been created by
 methods unknown to this library, and stored via ->socket().  Thus, 
-->connect doesn't actually have to do a TCP connection, and can just
+->connect() doesn't actually have to do a TCP connection, and can just
 continue on with the connection methods.
 
 =back
 
-Note for people with their own connection requirements: The ->connect
+Note for people with their own connection requirements: The ->connect()
 method is comparitively simple (ha!); just initiating a TCP connection and
 setting up handlers to negotiate TLS.  Those wishing to set up their
 own connection handlers are welcome to do so, but search this library's
 code for the string 'grok incomplete' before doing so.
+
+Those concerned about the ?xml attributes emitted by the remote end can
+reference the ->xml_version(), ->xml_encoding() and ->xml_standalone) methods.
 
 =cut
 
@@ -1050,7 +1053,7 @@ sub connect {
 
 		# Alternatively, we can forgo supplying the PeerAddr and
 		# PeerPort when creating the socket, and continually
-		# invoke the socket's ->connect method until it returns
+		# invoke the socket's ->connect() method until it returns
 		# something other than EINPROGRESS.  Thus, we get 
 		# TCP connections in the background.  Yay!
 		my $socket = undef;
@@ -1140,6 +1143,7 @@ sub connect {
 		# the opening text declaration (xml version/encoding)
 		my $xmlobj = $self->newNode( "?xml" );
 		$xmlobj->attr( "version", "1.0" );
+		$xmlobj->attr( "encoding", "UTF-8" );
 		$self->send( $xmlobj );
 
 		if( ! defined( $args{"Domain"} ) ){
@@ -1230,14 +1234,14 @@ sub connect {
 
 =head2 bgconnect
 
-The ->bgconnect method is just the same as the ->connect method, except it 
-returns straight away.  Use the ->bgconnected method to test for an answer
+The ->bgconnect() method is just the same as the ->connect() method, except it 
+returns straight away.  Use the ->bgconnected() method to test for an answer
 to that 4am question, am I connected or not?
 
 Returns 1 if the TCP connection could be started, and 0 if not.  If this
 method returns 0, you probably have bigger problems.
 
-Note: The ->bgconnect method just calls ->connect with the background 
+Note: The ->bgconnect() method just calls ->connect() with the background 
 flag set.
 
 =cut
@@ -1253,8 +1257,8 @@ This tests to see whether the current connection has succeeded.  It
 returns -1 if not yet, 0 if failed (and socket has been closed) and
 1 if successful.  It takes a hash of:
 
-	RunProcess - Invoke ->process internally
-	ProcessTime - time to pass to ->process (default 0 )
+	RunProcess - Invoke ->process() internally
+	ProcessTime - time to pass to ->process() (default 0 )
 
 If RunProcess is not specified, you will have to invoke ->process()
 seperately.
@@ -1583,8 +1587,8 @@ This tests to see whether the current authentication steps have succeeded.
 It returns -1 if not yet, 0 if failed and 1 if successful.  It takes a 
 hash of:
 
-	RunProcess - Invoke ->process internally
-	ProcessTime - time to pass to ->process (default 0 )
+	RunProcess - Invoke ->process() internally
+	ProcessTime - time to pass to ->process() (default 0 )
 
 If RunProcess is not specified, you will have to invoke ->process()
 seperately.
@@ -1931,14 +1935,14 @@ sub _bgauthenticated_handler {
 	if( defined( $node ) && defined( $sendtype ) ){
 		my $saslxmlns = $self->ConstXMLNS( 'xmpp-sasl' );
 
-		if( $node->name eq 'handshake' ){
+		if( $node->name() eq 'handshake' ){
 			# Handshake is empty if all good.
 			if( $self->_check_val( '_ask_handshake' ) ){
 				$self->{'_got_handshake'} = time;
 				$retval = r_HANDLED;
 			}
 			$self->debug( "got " . $node->toStr . " X \n" ) if( $self->_check_val( '_debug' ) );
-		}elsif( $sendtype eq "iq-auth" && $node->name eq 'iq' ){
+		}elsif( $sendtype eq "iq-auth" && $node->name() eq 'iq' ){
 			my $idval = $self->{'_sent_iq_auth'};
 			$self->debug( "got back iq result - want $idval" );
 			# print STDERR ( "got back iq result (" . $node->attr('id') . ") - want $idval " . $node->toStr . "\n" );
@@ -1965,7 +1969,7 @@ sub _bgauthenticated_handler {
 			# No?  Maybe its the next step in the sasl 
 			# authentication.
 		}elsif( $sendtype eq "sasl" ){
-			if( ( $node->name eq 'failure' || $node->name eq 'abort' ) && $node->xmlns() eq $saslxmlns ){
+			if( ( $node->name() eq 'failure' || $node->name() eq 'abort' ) && $node->xmlns() eq $saslxmlns ){
 				# Failed to authenticate.  Return 0 to
 				# the caller; note that the connection
 				# is still in place (RFC3920 6.2).
@@ -1977,7 +1981,7 @@ sub _bgauthenticated_handler {
 				$self->{'_done_auth_sasl'} = 1;
 				$self->{'_auth_failed'} = 1;
 				$retval = r_HANDLED;
-			}elsif( $node->name eq 'success' && $node->xmlns() eq $saslxmlns ){
+			}elsif( $node->name() eq 'success' && $node->xmlns() eq $saslxmlns ){
 				# We've succeeded.
 				$self->{'_auth_finished'} = 1;
 				$self->{'_done_auth_sasl'} = 1;
@@ -2000,7 +2004,7 @@ sub _bgauthenticated_handler {
 				$self->connect( '_redo' => 1, JustConnectAndStream => 1, Domain => $self->{'_authenticateargs'}{"Domain"} );
 				$self->{'_need_auth_stream'} = 1;
 
-			}elsif( $node->name eq 'challenge' && $node->xmlns() eq $saslxmlns ){
+			}elsif( $node->name() eq 'challenge' && $node->xmlns() eq $saslxmlns ){
 				$retval = r_HANDLED;
 				my $ctext64 = $node->data();
 				my $ctext = MIME::Base64::decode_base64( $ctext64 );
@@ -2098,7 +2102,8 @@ Some incidental things.
 =head2 stream_features
 
 This method returns the latest <stream:features> tag received from the
-server, or undef.  It is used internally by the ->bind and ->session methods.
+server, or undef.  It is used internally by the ->bind() and ->session()
+methods.
 
 Note that during the ->connect() and ->authenticate() phases, certain of
 these features may get 'used', and thus not returned by the server the
@@ -2127,9 +2132,9 @@ arranged as per 'method-mechanism', eg 'sasl-digest-md5' or
 
 This method should be called after ->connect(), obviously.
 
-Note: If Ask (or JustAsk) is specified, this method will call ->process, 
+Note: If Ask (or JustAsk) is specified, this method will call ->process(), 
 until it gets the reply it is expecting.  If other packets are expected
-during this time, use ->register_handler to set up callbacks for them,
+during this time, use ->register_handler() to set up callbacks for them,
 making sure that any <iq> packets in the
 'jabber:iq:auth' namespace (<query> subtag) are not swallowed.
 
@@ -2142,7 +2147,7 @@ sub listauths {
 	my %args = ( Username => undef,
 			Domain => $self->{'_connectargs'}{'Domain'},
 			Ask => 0,		# Whether to ask the server.
-			JustAsk => 0,		# Used by ->authenticate.
+			JustAsk => 0,		# Used by ->authenticate().
 			Want => 'hash',		# The return type.
 			Timeout => 30,		# How long to wait for
 						# a valid answer.
@@ -2192,7 +2197,7 @@ sub listauths {
 				}elsif( $args{"Ask"} && $havesent && ! $gotans ){
 					$stillgoing = 1;
 
-					# Invoke ->process to see if we got 
+					# Invoke ->process() to see if we got 
 					# something.
 
 					# XXXX This is the only place we
@@ -2278,7 +2283,7 @@ sub _listauths_handler {
 		if( defined( $querytag ) ){
 			$retval = r_HANDLED;
 			foreach my $cnode( $querytag->getChildren() ){
-				$self->debug( "Received back " . $cnode->name . "\n" );
+				$self->debug( "Received back " . $cnode->name() . "\n" );
 				next if( lc($cnode->name) =~ /^(username|resource)$/i );
 				$self->{"authmechs"}{"jabber:iq:auth-" . lc( $cnode->name() )}++;
 				# Special case.
@@ -2690,17 +2695,17 @@ sub _bind_handler {
 =head2 clear_handlers
 
 This clears any handlers that have been put on the object.  Some 
-applications may wish to do this after the standard ->connect
-and ->authenticate methods have returned successfully, as these
+applications may wish to do this after the standard ->connect()
+and ->authenticate() methods have returned successfully, as these
 use handlers to do their jobs.  
 
 Alternatively, specifying a 'Class' of 'connect' and 'authenticate'
-will remove just the handlers created by ->connect and ->authenticate
+will remove just the handlers created by ->connect() and ->authenticate()
 respectively.
 
-WARNING: The standard ->connect and ->authenticate (and/or their 
+WARNING: The standard ->connect() and ->authenticate() (and/or their 
 bg varients) require their configured handlers to be in place.  Do
-not execute ->clear_handlers between ->connect and ->authenticate,
+not execute ->clear_handlers() between ->connect() and ->authenticate,
 lest your application suddenly fail to work.
 
 This takes a hash of optional arguments, being 'Type' and 'Class'.  
@@ -2759,12 +2764,12 @@ so-called 'parcel' or 'persistent' data.  The return value is either
 the C<r_HANDLED> constant or parcel/persistent data to be handed to the
 next handler.
 
-Note: See notes regarding handlers under ->process.
+Note: See notes regarding handlers under ->process().
 
-Note: The ->connect and ->authenticate methods use handlers to function.
+Note: The ->connect() and ->authenticate() methods use handlers to function.
 
 Note: A third argument can be supplied to indicate the 'class' of this handler,
-for usage with ->clear_handlers.  If not supplied, defaults to 'user'.
+for usage with ->clear_handlers().  If not supplied, defaults to 'user'.
 
 =cut
 
@@ -2876,7 +2881,7 @@ sub register_interval {
 =head2 register_beat
 
 This is the Jabber::Connection compatibility call, and takes two arguments,
-a time interval and a subroutine.  Invokes ->register_interval .
+a time interval and a subroutine.  Invokes ->register_interval() .
 
 =cut
 
@@ -2916,7 +2921,7 @@ object has been retrieved via ->get_latest().  This does not apply if the
 object was eaten/accepted by a defined handler.
 
 Note: ->process() is a wrapper around ->can_read() and ->do_read(), but 
-it executes handlers as well.  ->process will return after every packet
+it executes handlers as well.  ->process() will return after every packet
 read (imho, a better behaviour than simply reading from the socket until
 the remote end stops sending us data).
 
@@ -3091,7 +3096,7 @@ sub send {
 		# Is the socket still connected?  can_write() does not
 		# detect this condition.
 		my $amconnected = 0;
-		if( defined( $self->socket->connected ) ){
+		if( defined( $self->socket->connected() ) ){
 			$amconnected = 1;
 		}
 
@@ -3198,7 +3203,7 @@ sub abort {
 			$self->{'_select'}->remove( $self->socket() );
 		}
 
-		my $tref = ref( $self->socket );
+		my $tref = ref( $self->socket() );
 		if( $tref ){
 			if( $tref =~ /SSL/ ){
 				# IO::Socket::SSL says that it has the 
@@ -3237,11 +3242,11 @@ Note: The library uses sysread() and send/syswrite() as required.  Passing
 in filehandles that do not support these functions is probably a bad
 idea.
 
-Note: There is some juggling of sockets within the ->connect method
+Note: There is some juggling of sockets within the ->connect() method
 when SSL starts up.  Whilst a select() on the original, or parent socket
 will probably still work, it would probably be safer to not include
 the socket returned by ->socket() in any select() until the ->connect()
-and ->authenticate methods have returned.
+and ->authenticate() methods have returned.
 
 =cut
 
@@ -3341,9 +3346,9 @@ of optional arguments, the most important being:
 	PendingOnly (default 0) - Only process the pending data, do not
 	attempt to read from the socket.
 
-->do_read also checks the maxobjectsize, maxobjectdepth and maxnamesize.
+->do_read() also checks the maxobjectsize, maxobjectdepth and maxnamesize.
 
-->do_read also checks the likely size of the object as it is being read.  If
+->do_read() also checks the likely size of the object as it is being read.  If
 it is larger than the maxobjectsize value passed to ->new/->init, the 
 appropriate behaviour will be taken.  Note that if the behaviour chosen
 is to continue parsing but not save (the default), then an attack consisting
@@ -3671,7 +3676,7 @@ sub _connect_starttls {
 
 	if( defined( $node ) ){
 		if( $node->name() eq "proceed" && $node->xmlns() eq $tlsxmlns ){
-			# Re-invoke ->connect to get SSL running.  We need
+			# Re-invoke ->connect() to get SSL running.  We need
 			# to slurp the original SSL* args out though.
 			my %SSLHash = ();
 			foreach my $kkey( keys %{$self->{'_connectargs'}} ){
@@ -3716,13 +3721,26 @@ sub _connect_handler {
 		$self->debug( " Got $node($nodename) and " . ( defined( $persisdata ) ? $persisdata : "undef" ) . " X\n" );
 
 		if( $nodename eq '?xml' ){
-			# RFC3920 11.4 says that applications MUST deal with
-			# the opening text declaration.  We don't unfortunately,
-			# and we don't pass it back to the caller.  This is 
-			# something for 0.9 .
+			# The caller might want to retrieve this information
+			# later.  Stash the known attributes away, and make
+			# some default assuptions.
+			# http://www.w3.org/TR/REC-xml/#sec-prolog-dtd
 			$retval = r_HANDLED;
-			$self->xml_version( value => $node->attr( "version" ) );
-			$self->xml_encoding( value => $node->attr( "encoding" ) );
+			if( defined( $node->attr( 'version' ) ) ){
+				$self->xml_version( value => $node->attr( "version" ) );
+			}else{
+				$self->xml_version( value => "1.0" );
+			}
+			if( defined( $node->attr( 'encoding' ) ) ){
+				$self->xml_encoding( value => $node->attr( "encoding" ) );
+			}else{
+				$self->xml_encoding( value => "UTF-8" );
+			}
+			if( defined( $node->attr( 'standalone' ) ) ){
+				$self->xml_standalone( value => $node->attr( "standalone" ) );
+			}else{
+				$self->xml_standalone( value => "standalone" );
+			}
 		}elsif( $nodename eq 'stream:stream' ){
 			$retval = r_HANDLED;
 
@@ -3815,7 +3833,9 @@ sub _connect_handler {
 
 =head2 xml_version
 
-This returns the version supplied by the last <?xml?> tag received.
+This returns the version supplied by the last <?xml?> tag received, and
+defaults to '1.0'.  Refer to the XML reference at
+L<http://www.w3.org/TR/REC-xml/#sec-prolog-dtd> .
 
 =cut
 
@@ -3830,7 +3850,8 @@ sub xml_version {
 
 =head2 xml_encoding
 
-This returns the encoding supplied by the last <?xml?> tag received.
+This returns the encoding supplied by the last <?xml?> tag received, and
+defaults to 'UTF-8' if one was not supplied.
 
 =cut
 
@@ -3841,6 +3862,22 @@ sub xml_encoding {
 		$self->{'_xml_encoding'} = $args{"value"};
 	}
 	return( $self->{'_xml_encoding'} );
+}
+
+=head2 xml_standalone
+
+This returns the standalone value supplied by the last <?xml?> tag received,
+and defaults to 'unknown' if one was not supplied.
+
+=cut
+
+sub xml_standalone {
+	my $self = shift;
+	my %args = ( @_ );
+	if( exists( $args{"value"} ) ){
+		$self->{'_xml_standalone'} = $args{"value"};
+	}
+	return( $self->{'_xml_standalone'} );
 }
 
 ############################################################################
@@ -4050,6 +4087,9 @@ sub name {
 	if( defined( $arg ) ){
 		$self->{'_name'} = $arg;
 		$self->debug( "Setting my name to $arg X" );
+	}elsif( ! defined( $self->{'_name'} ) ){
+		# No name string previously defined?  Skip.
+		return( undef );
 	}
 
 	return( $self->{'_name'} );
@@ -4074,13 +4114,17 @@ sub is_complete {
 
 =head2 getChildren
 
-Return an @array of subobjects.
+Return an @array of subobjects, or undef.
 
 =cut
 
 sub getChildren {
 	my $self = shift;
-	return( @{$self->{'_curobjs'}} );
+	if( defined( $self->{'_curobjs'} ) ){
+		return( @{$self->{'_curobjs'}} );
+	}else{
+		return( undef );
+	}
 }
 
 =head2 getTag
@@ -4200,7 +4244,9 @@ sub data {
 	if( defined( $dstr ) ){
 		# Do some encoding on the string.
 		$self->{'_data'} = $self->encode( $dstr );
-
+	}elsif( ! defined( $self->{'_data'} ) ){
+		# No data string previously defined?  Skip.
+		return( undef );
 	}
 
 	# Need to do some decoding stuff.
@@ -4245,7 +4291,7 @@ sub parent {
 			$self->{'_parent'} = shift;
 		}
 	}else{
-		# warn( "$self: Unset parent on " . $self->name . "\n" );
+		# warn( "$self: Unset parent on " . $self->name() . "\n" );
 	}
 
 	return( $self->{'_parent'} );
@@ -4351,7 +4397,7 @@ In certain versions of perl, this may assist with cleanup.
 
 =cut
 
-# ->hidetree is in two parts.  This is the first part, which invokes the
+# ->hidetree() is in two parts.  This is the first part, which invokes the
 # recursive routine and then removes the reference to ourselves from our
 # parent.
 sub hidetree {
@@ -4363,7 +4409,7 @@ sub hidetree {
 
 # This is the second part.  It avoids the recursing routine on each
 # child object from querying the current object again to remove 
-# itself, as is done by ->hide.
+# itself, as is done by ->hide().
 sub hidetree_recurse {
 	my $self = shift;
 
@@ -4623,7 +4669,7 @@ sub toStr {
 =head2 GetXML
 
 This is the Net::XMPP::Stanza compatibility call, and simply invokes 
-->toStr.  Note for Ryan: where is ->GetXML actually documented?
+->toStr().  Note for Ryan: where is ->GetXML() actually documented?
 
 =cut
 
@@ -4750,7 +4796,7 @@ The parser, such as it is, will sometimes return text to be prepended with
 any new text.  If the calling application does not keep track of the 
 returned text and supply it the next time, the parser's behaviour is 
 undefined.  Most applications will be invoking ->parse_more() via 
-->do_read or ->process(), so this situation will not come up.
+->do_read() or ->process(), so this situation will not come up.
 
 This needs 
 
@@ -5580,7 +5626,7 @@ sub parse_more {
 =head2 _curstatus 
 
 Returns the current status of the parser on the current object.  
-Used by the ->connect method, but may be useful in debugging the
+Used by the ->connect() method, but may be useful in debugging the
 parser.
 
 =cut
@@ -5667,7 +5713,7 @@ sub expandEntity {
 	# stored right at the parent object (no sense copying them).  So
 	# we go all the way back up to the parent to expand the string, even
 	# if it is simply 'amp'.
-	if( defined( $self->parent ) ){
+	if( defined( $self->parent() ) ){
 		return( $self->parent->expandEntity( @_ ) );
 	}else{
 		my $arg = shift;
@@ -5869,7 +5915,7 @@ sub debug {
 	chomp( $arg );
 
 	# This check is repeated in some functions, to avoid the
-	# overhead of invoking ->debug as they are called very frequently.
+	# overhead of invoking ->debug() as they are called very frequently.
 	my $dval = $self->_check_val( '_debug' );
 	if( $dval ){
 		$dval = $self->{'_debug'};
@@ -5978,14 +6024,15 @@ parent <-> child relationships), perl does not clean them up until the
 end of the program.  Whilst this library does do some tricks to get around
 this in newer versions of perl, involving proxy objects and 
 'weaken' from Scalar::Util , this library may leak memory in older versions
-of perl.  Invoking ->hidetree on a retrieved object before it falls out
+of perl.  Invoking ->hidetree() on a retrieved object before it falls out
 of scope is recommended (the library does this on some internal objects,
 perhaps obsessively).  Note that you may need to create a copy of a
-object via newNodeFromStr/toStr due to this.
+object via ->newNodeFromStr()/->toStr() due to this.
 
 =head1 AUTHOR
 
-Bruce Campbell, Zerlargal VOF, 2005-7 .  See http://cpan.zerlargal.org/Jabber::Lite
+Bruce Campbell, Zerlargal VOF, 2005-2010 .  See
+L<http://cpan.zerlargal.org/Jabber::Lite>
 
 =head1 COPYRIGHT
 
@@ -5999,8 +6046,8 @@ I am primarily a Sysadmin, and like Perl programmers, Sysadmins are lazy
 by nature.  So, bits of this library were copied from other, existing 
 libraries as follows:
 
-	encode(), decode() and some function names: Jabber::NodeFactory.
-	ConstXMLNS(), SASL handling: XML::Stream
+	->encode(), ->decode() and some function names: L<Jabber::NodeFactory>.
+	->ConstXMLNS(), SASL handling: L<XML::Stream>
 
 =cut
 

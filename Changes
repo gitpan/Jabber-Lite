@@ -1,4 +1,9 @@
 
+0.8.1 2010/06 - Bruce Campbell
+	- Don't you know the Dewey Decimal System?
+		* Stop die()ing on getChildren() and undef data().
+		* Be consistent in referencing other routines.
+
 0.8 2007/01 - Bruce Campbell
 	- And thats how my brother became a BMW.
 
